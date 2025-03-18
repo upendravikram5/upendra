@@ -1,0 +1,102 @@
+go get github.com/confluentinc/confluent-kafka-go/v2/kafka
+
+package main
+
+import (
+	"fmt"
+	"log"
+
+	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
+)
+
+func main() {
+	// Create Kafka producer configuration
+	producer, err := kafka.NewProducer(&kafka.ConfigMap{
+		"bootstrap.servers": "localhost:9092",
+	})
+	if err != nil {
+		log.Fatalf("Failed to create producer: %s\n", err)
+	}
+	defer producer.Close()
+
+	// Delivery report handler for async writes
+	go func() {
+		for event := range producer.Events() {
+			switch ev := event.(type) {
+			case *kafka.Message:
+				if ev.TopicPartition.Error != nil {
+					fmt.Printf("Failed to deliver message: %v\n", ev.TopicPartition)
+				} else {
+					fmt.Printf("Message delivered to: %v\n", ev.TopicPartition)
+				}
+			}
+		}
+	}()
+
+	// Send message
+	topic := "test_topic"
+	message := "Hello, Kafka from Golang!"
+	err = producer.Produce(&kafka.Message{
+		TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny},
+		Value:          []byte(message),
+	}, nil)
+	if err != nil {
+		log.Fatalf("Failed to produce message: %s\n", err)
+	}
+
+	// Wait for message deliveries before shutting down
+	producer.Flush(5000)
+}
+
+
+
+
+
+###############################################
+
+package main
+
+import (
+	"fmt"
+	"log"
+
+	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
+)
+
+func main() {
+	// Create Kafka consumer configuration
+	consumer, err := kafka.NewConsumer(&kafka.ConfigMap{
+		"bootstrap.servers": "localhost:9092",
+		"group.id":          "test_group",
+		"auto.offset.reset": "earliest",
+	})
+	if err != nil {
+		log.Fatalf("Failed to create consumer: %s\n", err)
+	}
+	defer consumer.Close()
+
+	// Subscribe to topic
+	topic := "test_topic"
+	err = consumer.Subscribe(topic, nil)
+	if err != nil {
+		log.Fatalf("Failed to subscribe to topic: %s\n", err)
+	}
+
+	// Poll for messages
+	fmt.Println("Waiting for messages...")
+	for {
+		msg, err := consumer.ReadMessage(-1)
+		if err == nil {
+			fmt.Printf("Received message: %s\n", string(msg.Value))
+		} else {
+			fmt.Printf("Consumer error: %v\n", err)
+		}
+	}
+}
+
+
+
+
+
+
+
