@@ -614,4 +614,69 @@ Then open http://localhost:16686 to visualize traces.
 ✅ Distributed Tracing with OpenTelemetry
 ✅ Propagate Traces across microservices
 ✅ Monitor in OpenTelemetry, Jaeger, or Cloud APM
+
+
+
+
+
+
+
+									     Custom Logger with File Rotation
+For enterprise apps, logs should be rotated to avoid large files. We use lumberjack for this.
+
+sh
+Copy
+Edit
+go get gopkg.in/natefinch/lumberjack.v2
+go
+Copy
+Edit
+package main
+
+import (
+	"log"
+	"os"
+	"time"
+
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"gopkg.in/natefinch/lumberjack.v2"
+)
+
+func main() {
+	// File writer with rotation
+	logWriter := zapcore.AddSync(&lumberjack.Logger{
+		Filename:   "./logs/app.log",
+		MaxSize:    10, // MB
+		MaxBackups: 5,
+		MaxAge:     30, // Days
+		Compress:   true,
+	})
+
+	// Define encoder config
+	encoderCfg := zapcore.EncoderConfig{
+		TimeKey:       "timestamp",
+		LevelKey:      "level",
+		MessageKey:    "message",
+		CallerKey:     "caller",
+		EncodeTime:    zapcore.TimeEncoderOfLayout(time.RFC3339),
+		EncodeLevel:   zapcore.CapitalLevelEncoder,
+		EncodeCaller:  zapcore.ShortCallerEncoder,
+	}
+
+	// Create logger
+	core := zapcore.NewCore(zapcore.NewJSONEncoder(encoderCfg), logWriter, zap.InfoLevel)
+	logger := zap.New(core, zap.AddCaller(), zap.AddStacktrace(zap.ErrorLevel))
+	defer logger.Sync()
+
+	// Log messages
+	logger.Info("Application started", zap.String("env", "production"))
+	logger.Warn("Disk space running low")
+	logger.Error("Database connection failed", zap.String("error", "timeout"))
+}
+🔹 Features of This Logger
+✔ Structured JSON Logs – Works with log aggregators (e.g., ELK, Loki)
+✔ Log Rotation – Prevents large log files
+✔ Levels – Supports INFO, WARN, ERROR, FATAL
+✔ High Performance – Uses Zap (fastest Go logger)
 									     
