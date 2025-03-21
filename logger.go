@@ -679,4 +679,46 @@ func main() {
 ✔ Log Rotation – Prevents large log files
 ✔ Levels – Supports INFO, WARN, ERROR, FATAL
 ✔ High Performance – Uses Zap (fastest Go logger)
+
+
+
+
+
+
+
+
+
+									     ###################################
+
+
+
+
+
+
+// Build Zap configuration
+	zapConfig := zap.Config{
+		Level:            zap.NewAtomicLevelAt(logLevel),
+		Development:      false,
+		Encoding:         cfg.Logging.Encoding,
+		OutputPaths:      cfg.Logging.OutputPaths,
+		ErrorOutputPaths: cfg.Logging.ErrorOutPaths,
+		EncoderConfig: zapcore.EncoderConfig{
+			TimeKey:        "timestamp",
+			LevelKey:       "level",
+			MessageKey:     "message",
+			CallerKey:      "caller",
+			EncodeTime:     zapcore.ISO8601TimeEncoder,
+			EncodeLevel:    zapcore.CapitalLevelEncoder,
+			EncodeCaller:   zapcore.ShortCallerEncoder,
+		},
+	}
+
+	// Create logger
+	Log, err = zapConfig.Build()
+	if err != nil {
+		log.Fatalf("❌ Failed to initialize Zap logger: %v", err)
+	}
+
+	Log.Info("✅ Logger initialized successfully", zap.String("level", strings.ToUpper(cfg.Logging.Level)))
+
 									     
