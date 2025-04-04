@@ -109,4 +109,295 @@ if string(msg.Key) == "Key-A" {
     fmt.Printf("Filtered message: Key=%s, Value=%s\n", msg.Key, msg.Value)
 }
 
+####################################################################################
+
+
+
+Okay, let's outline how to write unit tests for the main.go file where your application is initialized. Since main.go typically involves a lot of setup (loading config, connecting to databases, starting servers), the goal is to test that these initialization steps are performed correctly. We'll focus on isolating the core initialization logic and testing it in a controlled environment.
+
+Assumptions:
+
+You're following the package structure outlined in previous responses.
+
+You're using the testify assertion library for more convenient assertions. You can install it with: go get github.com/stretchr/testify/assert
+
+You have a way to mock or stub external dependencies (like databases or message queues) during testing.
+
+1. Refactor main.go for Testability:
+
+The first step is to refactor main.go to make it more testable. Extract the initialization logic into separate functions that can be called and tested independently.
+
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"my-microservice/internal/app"
+	"my-microservice/internal/infrastructure/config"
+	"my-microservice/internal/infrastructure/logger"
+	"my-microservice/api/rest"
+	"database/sql" // Or whichever DB you're using
+	"github.com/confluentinc/confluent-kafka-go/kafka"
+)
+
+// initializeComponents encapsulates the core initialization logic
+func initializeComponents(cfg *config.Config) (*logger.Logger, *sql.DB, *kafka.Producer, *app.Application, error) {
+    // 1. Initialize Logger
+    log := logger.NewLogger(logger.Config{ //Assuming the config is needed for logger
+		Level:       cfg.LogLevel,
+		Encoding:    cfg.LogEncoding,
+		OutputPaths: []string{cfg.LogOutput},
+	})
+
+    // 2. Initialize Database
+    db, err := initializeDatabase(cfg.DatabaseURL) //Custom DB initialization function
+    if err != nil {
+        return nil, nil, nil, nil, fmt.Errorf("failed to connect to database: %w", err)
+    }
+
+    // 3. Initialize Message Queue (Kafka)
+    kafkaProducer, err := initializeKafkaProducer(cfg.KafkaBrokers)
+    if err != nil {
+        return nil, nil, nil, nil, fmt.Errorf("failed to create Kafka producer: %w", err)
+    }
+
+    // 4. Initialize Application
+    application := app.NewApplication(cfg, log, db, kafkaProducer)
+
+    return &log, db, kafkaProducer, application, nil
+}
+
+func main() {
+    // 1. Load Configuration
+    cfg, err := config.LoadConfig()
+    if err != nil {
+        log.Fatalf("Failed to load config: %v", err)
+    }
+
+    // 2. Initialize Components
+    logPtr, db, kafkaProducer, application, err := initializeComponents(cfg)
+    if err != nil {
+        log.Fatalf("Failed to initialize components: %v", err)
+    }
+
+	log := *logPtr //Dereference to get the logger
+    defer func() {
+        log.Info("Closing resources...")
+        if db != nil {
+            db.Close()
+        }
+        if kafkaProducer != nil {
+            kafkaProducer.Close()
+        }
+    }()
+    // 3. Initialize REST API Handlers
+    orderHandler := rest.NewOrderHandler(application)
+
+    // 4. Start HTTP Server
+    mux := http.NewServeMux()
+    orderHandler.RegisterRoutes(mux)
+    server := &http.Server{
+        Addr:    cfg.HTTPAddress,
+        Handler: mux,
+    }
+
+    go func() {
+        log.Infof("Starting HTTP server on %s", cfg.HTTPAddress)
+        if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+            log.Fatalf("HTTP server ListenAndServe error: %v", err)
+        }
+    }()
+
+    // 5. Start Kafka Consumers (Example)
+    go func() {
+        err := application.StartConsumers()
+        if err != nil {
+            log.Errorf("Error starting consumers: %v", err)
+        }
+    }()
+
+    // 6. Handle Shutdown Signals
+    quit := make(chan os.Signal, 1)
+    signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+    <-quit // Block until a signal is received
+    log.Info("Shutdown signal received...")
+
+    // 7. Graceful Shutdown
+    ctx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+    defer cancel()
+
+    if err := server.Shutdown(ctx); err != nil {
+        log.Errorf("HTTP server shutdown error: %v", err)
+    }
+
+    log.Info("Service exiting")
+}
+
+// Placeholder for database initialization (replace with actual implementation)
+func initializeDatabase(dbURL string) (*sql.DB, error) {
+    // In the real implementation, you would connect to the database here
+    fmt.Println("Simulating database initialization...")
+    return &sql.DB{}, nil // Return a dummy DB connection for testing purposes
+}
+
+// Placeholder for Kafka producer initialization (replace with actual implementation)
+func initializeKafkaProducer(brokers string) (*kafka.Producer, error) {
+    // In the real implementation, you would create the Kafka producer here
+    fmt.Println("Simulating Kafka producer initialization...")
+    return &kafka.Producer{}, nil // Return a dummy producer for testing purposes
+}
+
+
+2. Create main_test.go:
+
+Create a main_test.go file in the same directory as main.go. This file will contain your unit tests.
+
+package main
+
+import (
+	"fmt"
+	"os"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"my-microservice/internal/app"
+	"my-microservice/internal/infrastructure/config"
+	"my-microservice/internal/infrastructure/logger"
+)
+
+// mockDB is a mock implementation of a database connection
+type mockDB struct{}
+
+func (m *mockDB) Close() error {
+	return nil
+}
+
+// mockKafkaProducer is a mock implementation of a Kafka producer
+type mockKafkaProducer struct{}
+
+func (m *mockKafkaProducer) Close() {
+}
+
+func TestInitializeComponents(t *testing.T) {
+    // Create a test configuration
+    cfg := &config.Config{
+        LogLevel:       "debug",
+		LogEncoding:    "json",
+		LogOutput:      "stdout",
+        DatabaseURL:    "test_db_url",
+        KafkaBrokers:   "test_kafka_brokers",
+        HTTPAddress:    ":8080",
+        ShutdownTimeout: 5,
+    }
+
+    // Call initializeComponents
+    logPtr, db, kafkaProducer, application, err := initializeComponents(cfg)
+    log := *logPtr
+
+    // Assert that there is no error during initialization
+    require.NoError(t, err)
+
+    // Assert that the initialized components are not nil
+    assert.NotNil(t, log, "Logger should not be nil")
+    assert.NotNil(t, db, "Database should not be nil")
+    assert.NotNil(t, kafkaProducer, "Kafka producer should not be nil")
+    assert.NotNil(t, application, "Application should not be nil")
+
+    // Add more specific assertions based on your requirements
+
+    // Example: Assert that the logger level is set correctly (if applicable)
+    //assert.Equal(t, zapcore.DebugLevel, log.Core().EnabledLevel(), "Logger level should be debug")
+
+    // Example: Assert that the database URL is used correctly (if applicable)
+    //assert.Contains(t, db.DSN, "test_db_url", "Database URL should be used")
+}
+
+func TestMain_Integration(t *testing.T) {
+	// Set environment variables for testing
+	os.Setenv("LOG_LEVEL", "debug")
+	os.Setenv("LOG_ENCODING", "json")
+	os.Setenv("LOG_OUTPUT", "stdout")
+	os.Setenv("DB_URL", "test_db_url")
+	os.Setenv("KAFKA_BROKERS", "test_kafka_brokers")
+
+	// Call the main function
+	go main()
+
+	// Give the application some time to start
+	time.Sleep(2 * time.Second)
+
+	// TODO: Add assertions here to verify that the application started correctly
+	// For example, you can check if the HTTP server is listening on the correct port
+	// and if the Kafka consumers are running.
+
+	// Shutdown the application gracefully
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Clean up environment variables
+	os.Unsetenv("LOG_LEVEL")
+	os.Unsetenv("LOG_ENCODING")
+	os.Unsetenv("LOG_OUTPUT")
+	os.Unsetenv("DB_URL")
+	os.Unsetenv("KAFKA_BROKERS")
+
+	// TODO: Verify the cleanup steps
+	fmt.Println("Cleanup complete")
+}
+IGNORE_WHEN_COPYING_START
+content_copy
+download
+Use code with caution.
+Go
+IGNORE_WHEN_COPYING_END
+
+3. Implement Mocks (Important for Isolation):
+
+Since you don't want to connect to a real database or Kafka cluster during unit testing, you need to create mock implementations of these dependencies. You can use interfaces and dependency injection to make this easier.
+
+In the above example, mockDB and mockKafkaProducer are examples of very simple mocks. In a real application, you would need to implement the methods of the database and Kafka interfaces more fully to simulate their behavior. Consider using a mocking library like gomock for more advanced mocking capabilities.
+
+4. Write Assertions:
+
+Use the testify assertion library to verify that the initialization steps are performed correctly. You can assert that:
+
+The logger is initialized with the correct level.
+
+The database connection is established (or at least attempted).
+
+The Kafka producer is created.
+
+The application is initialized with the correct dependencies.
+
+5. Running the Tests:
+
+Run the tests using the go test command in the directory containing main.go and main_test.go:
+
+go test .
+IGNORE_WHEN_COPYING_START
+content_copy
+download
+Use code with caution.
+Bash
+IGNORE_WHEN_COPYING_END
+
+Key Improvements and Considerations:
+
+Configuration Testing: It's often helpful to test the configuration loading process itself. You can create test configuration files and verify that the config.LoadConfig() function correctly parses them.
+
+Mocking Libraries: For more complex mocking scenarios, consider using a mocking library like gomock. This can help you generate mock implementations of interfaces automatically.
+
+Integration Tests: The unit test for main focuses on the setup of the components. Integration tests are useful, as they test what happens after setup, when you might want to test a whole run. These are more expensive and take longer.
+
+By following these steps, you can write effective unit tests for your main.go file and ensure that your application is initialized correctly. Remember to prioritize isolation, use mocks to simulate external dependencies, and write assertions to verify the expected behavior. Make sure to clean any env variables or other temporary state that may impact other tests.
+
+
 
