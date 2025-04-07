@@ -1,9 +1,17 @@
-
-
 bin\windows\kafka-topics.bat --bootstrap-server localhost:9092 --list
 
-
-
 bin\windows\kafka-console-consumer.bat --bootstrap-server localhost:9092 --topic your-topic-name --from-beginning
+
+
+# Delete the topic
+kafka-topics.sh --bootstrap-server localhost:9092 --delete --topic your-topic-name
+
+# Recreate the topic
+kafka-topics.sh --bootstrap-server localhost:9092 --create --topic your-topic-name --partitions 1 --replication-factor 1
+
+
+
+kafka-configs.sh --bootstrap-server localhost:9092 --entity-type topics --entity-name your-topic-name --alter --add-config retention.ms=100
+kafka-configs.sh --bootstrap-server localhost:9092 --entity-type topics --entity-name your-topic-name --alter --delete-config retention.ms
 
 
