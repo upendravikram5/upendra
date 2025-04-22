@@ -15,3 +15,6 @@ kafka-configs.sh --bootstrap-server localhost:9092 --entity-type topics --entity
 kafka-configs.sh --bootstrap-server localhost:9092 --entity-type topics --entity-name your-topic-name --alter --delete-config retention.ms
 
 
+
+
+kafka-consumer-groups.sh --bootstrap-server <broker> --group <group-id> --describe
